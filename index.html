@@ -1,0 +1,1101 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Modbus RTU 測試台</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: instrument console — connection strip on top, poll-window rail left, register grid center, bus traffic monitor below */
+:root{
+  --bg:#eceff0; --panel:#fbfcfc; --sunk:#e2e7e9; --line:#c6cfd3; --line-soft:#dde3e5;
+  --fg:#172025; --muted:#5a6870;
+  --accent:#b35900; --accent-fg:#ffffff; --accent-soft:rgba(179,89,0,.14);
+  --ok:#1d7a4b; --err:#bf3424; --err-fg:#ffffff; --warn-bg:#fbefd9; --warn-fg:#6b4300;
+  --tx:#2459a6; --rx:#1d7a4b; --scrim:rgba(10,16,20,.45);
+  --f-ui:"Barlow","PingFang TC","Microsoft JhengHei","Noto Sans TC",system-ui,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,"Cascadia Mono",Consolas,"Microsoft JhengHei",monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1417; --panel:#161d21; --sunk:#0b1013; --line:#2a353b; --line-soft:#1f292e;
+    --fg:#d9e2e6; --muted:#8796a0;
+    --accent:#f0a33a; --accent-fg:#1c1100; --accent-soft:rgba(240,163,58,.18);
+    --ok:#4cc38a; --err:#ff6e5f; --err-fg:#1f0603; --warn-bg:#3a2a10; --warn-fg:#f6cf8e;
+    --tx:#76a9ff; --rx:#4cc38a; --scrim:rgba(0,0,0,.6); color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f1417; --panel:#161d21; --sunk:#0b1013; --line:#2a353b; --line-soft:#1f292e;
+  --fg:#d9e2e6; --muted:#8796a0;
+  --accent:#f0a33a; --accent-fg:#1c1100; --accent-soft:rgba(240,163,58,.18);
+  --ok:#4cc38a; --err:#ff6e5f; --err-fg:#1f0603; --warn-bg:#3a2a10; --warn-fg:#f6cf8e;
+  --tx:#76a9ff; --rx:#4cc38a; --scrim:rgba(0,0,0,.6); color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:15px;line-height:1.4}
+.mono{font-family:var(--f-mono)}
+.muted{color:var(--muted)}
+.app{max-width:1440px;margin:0 auto;padding-block:16px 32px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:12px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;min-width:0}
+
+/* connection strip */
+.bar{display:flex;flex-wrap:wrap;gap:14px 24px;align-items:center;justify-content:space-between;padding:12px 14px}
+.brand{display:flex;gap:14px;align-items:center}
+h1{font-size:1.2rem;font-weight:700;margin:0;letter-spacing:.01em;text-wrap:balance}
+.sub{margin:0;color:var(--muted);font-size:.8rem;letter-spacing:.03em}
+.leds{display:flex;gap:7px;padding:6px 8px;border:1px solid var(--line);border-radius:4px;background:var(--sunk)}
+.led{font:500 .6rem/1 var(--f-mono);display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--muted);letter-spacing:.05em}
+.led i{width:9px;height:9px;border-radius:50%;background:var(--panel);border:1px solid var(--line);transition:background .05s}
+.led.on i{background:var(--accent);border-color:var(--accent);box-shadow:0 0 6px var(--accent)}
+.led.rx.on i,.led.pwr.on i{background:var(--ok);border-color:var(--ok);box-shadow:0 0 6px var(--ok)}
+.conn{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:flex-end}
+.fld{display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:var(--muted);letter-spacing:.03em;min-width:0}
+.portbox{display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:var(--muted)}
+.portbox .row{display:flex;gap:6px;align-items:center}
+#portName{font-size:.78rem;color:var(--fg);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+select,input{font:inherit;font-size:.9rem;color:var(--fg);background:var(--sunk);border:1px solid var(--line);border-radius:4px;padding:5px 7px;min-width:0}
+input[type=checkbox]{accent-color:var(--accent);width:16px;height:16px;padding:0}
+select:disabled,input:disabled{opacity:.55}
+:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.btn{font:600 .88rem/1 var(--f-ui);padding:8px 12px;border-radius:4px;border:1px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer;white-space:nowrap}
+.btn:hover:not(:disabled){border-color:var(--muted)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.btn.primary:hover:not(:disabled){filter:brightness(1.08)}
+.btn.live{border-color:var(--ok);color:var(--ok)}
+.btn.arm{background:var(--err);border-color:var(--err);color:var(--err-fg)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.sm{padding:5px 9px;font-size:.8rem}
+
+.notice{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;padding:10px 14px;border-radius:6px;background:var(--warn-bg);color:var(--warn-fg);border:1px solid var(--line);font-size:.9rem}
+.notice button{background:none;border:0;color:inherit;font:600 .85rem var(--f-ui);cursor:pointer;padding:2px 4px}
+
+/* main area */
+.main{display:grid;grid-template-columns:270px minmax(0,1fr);gap:12px;align-items:start}
+@media (max-width:860px){.main{grid-template-columns:minmax(0,1fr)}}
+.rail{padding:12px;display:grid;gap:12px}
+.rail-head{display:flex;justify-content:space-between;align-items:center}
+h2{font-size:.74rem;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0}
+.winlist{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.win{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:2px 9px;align-items:center;padding:8px 10px;border-radius:4px;border:1px solid transparent;cursor:pointer;background:none;text-align:left;width:100%;color:inherit;font:inherit}
+.win:hover{background:var(--sunk)}
+.win[aria-current="true"]{background:var(--sunk);border-color:var(--line)}
+.win .dot{grid-row:span 2;width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.dot.ok{background:var(--ok)}.dot.err{background:var(--err)}.dot.off{background:transparent;border:1px solid var(--muted)}
+.win .nm{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.win .cnt{font:.7rem var(--f-mono);color:var(--muted);text-align:right;grid-row:span 2;font-variant-numeric:tabular-nums;line-height:1.5}
+.win .cnt b{font-weight:500;color:var(--err)}
+.win .meta{font:.72rem var(--f-mono);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.adv{border-top:1px solid var(--line);padding-top:10px}
+.adv summary{cursor:pointer;font-size:.74rem;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.adv .opt{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:.86rem;margin-top:9px}
+.adv .opt.chk{justify-content:flex-start}
+.adv input[type=number]{width:92px}
+.hint{font-size:.78rem;color:var(--muted);margin:8px 0 0;line-height:1.5}
+.hint b{color:var(--fg);font-weight:600}
+
+.work{display:grid;min-width:0}
+.def{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;padding:12px 14px;border-bottom:1px solid var(--line)}
+.def input[type=number]{width:86px}
+#wName{width:170px}
+#wFc{max-width:230px}
+.def .chkfld{flex-direction:row;align-items:center;gap:6px;padding-bottom:6px;font-size:.86rem;color:var(--fg)}
+.def .spacer{flex:1 1 0}
+.def .acts{display:flex;gap:6px;flex-wrap:wrap}
+.status{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;justify-content:space-between;padding:8px 14px;background:var(--sunk);border-bottom:1px solid var(--line);font-size:.8rem}
+.status .line{font-family:var(--f-mono);font-variant-numeric:tabular-nums;white-space:pre-wrap}
+.status .right{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.chip{font:600 .76rem/1.2 var(--f-ui);padding:3px 9px;border-radius:999px;border:1px solid currentColor}
+.chip.ok{color:var(--ok)}.chip.err{color:var(--err)}.chip.idle{color:var(--muted)}
+.linkbtn{background:none;border:0;color:var(--muted);font:500 .76rem var(--f-ui);cursor:pointer;text-decoration:underline;padding:2px}
+.grid-wrap{overflow:auto;max-height:min(62vh,640px)}
+table.grid{width:100%;border-collapse:collapse;font-size:.88rem}
+.grid th{position:sticky;top:0;background:var(--panel);text-align:left;font:600 .72rem var(--f-ui);letter-spacing:.07em;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line);z-index:1;white-space:nowrap}
+.grid th.r{text-align:right}
+.grid td{padding:3px 10px;border-bottom:1px solid var(--line-soft);vertical-align:middle}
+.grid td.addr{font-family:var(--f-mono);white-space:nowrap;font-variant-numeric:tabular-nums}
+.grid td.addr small{color:var(--muted);margin-left:8px;font-size:.72rem}
+.grid input.alias{width:100%;min-width:140px;background:transparent;border-color:transparent;font-size:.86rem}
+.grid input.alias:hover,.grid input.alias:focus{border-color:var(--line);background:var(--sunk)}
+.grid select{font-size:.8rem;padding:3px 4px}
+.grid .fmtfixed{font-size:.8rem;color:var(--muted)}
+.val{font-family:var(--f-mono);font-variant-numeric:tabular-nums;text-align:right;min-width:150px;display:block;width:100%;padding:5px 8px;background:none;border:1px solid transparent;border-radius:3px;color:var(--fg);cursor:pointer;font-size:.92rem;white-space:nowrap}
+.val:hover{border-color:var(--accent)}
+.val.ro{cursor:default}.val.ro:hover{border-color:transparent}
+.val.stale{color:var(--muted)}
+.val.cont{color:var(--muted);font-size:.75rem;cursor:default}.val.cont:hover{border-color:transparent}
+.val.flash{background:var(--accent-soft)}
+.bit{display:inline-flex;gap:8px;align-items:center}
+.bit i{width:9px;height:9px;border-radius:50%;border:1px solid var(--muted)}
+.bit.on i{background:var(--ok);border-color:var(--ok)}
+
+/* traffic monitor */
+.mon{display:grid}
+.mon-head{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line)}
+.mon-head .tools{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.mon-head label{display:flex;gap:5px;align-items:center;font-size:.84rem}
+.raw{display:flex;gap:6px;align-items:center;flex:1 1 340px;min-width:0;flex-wrap:wrap}
+.raw input[type=text]{flex:1 1 200px;min-width:0;font-family:var(--f-mono);font-size:.84rem}
+.monlog{margin:0;padding:10px 14px;height:230px;overflow:auto;font:.8rem/1.6 var(--f-mono);background:var(--sunk);border-radius:0 0 6px 6px;white-space:pre-wrap;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.monlog .tx{color:var(--tx)}.monlog .rx{color:var(--rx)}.monlog .er{color:var(--err)}.monlog .ts{color:var(--muted)}
+.monlog .empty{color:var(--muted);font-family:var(--f-ui)}
+
+/* write dialog */
+.overlay{position:fixed;inset:0;background:var(--scrim);display:grid;place-items:center;padding:16px;z-index:50}
+.dialog{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px;width:min(480px,100%);display:grid;gap:12px;box-shadow:0 20px 50px rgba(0,0,0,.3)}
+.dialog h3{margin:0;font-size:1.05rem}
+.dgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.dialog .fld input,.dialog .fld select{width:100%}
+.dprev{font:.78rem/1.5 var(--f-mono);background:var(--sunk);border:1px solid var(--line);border-radius:4px;padding:8px 10px;overflow-wrap:anywhere;color:var(--tx)}
+.dprev span{color:var(--muted);font-family:var(--f-ui)}
+.derr{margin:0;color:var(--err);font-size:.85rem}
+.actions{display:flex;justify-content:flex-end;gap:8px}
+.toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 14px;border-radius:4px;font-size:.88rem;z-index:60;max-width:calc(100% - 32px)}
+@media (prefers-reduced-motion: reduce){.led i{transition:none}}
+</style>
+
+<div class="app">
+  <header class="panel bar">
+    <div class="brand">
+      <div class="leds" aria-label="狀態燈">
+        <span class="led pwr" id="ledPwr"><i></i>PWR</span>
+        <span class="led tx" id="ledTx"><i></i>TX</span>
+        <span class="led rx" id="ledRx"><i></i>RX</span>
+      </div>
+      <div>
+        <h1>Modbus RTU 測試台</h1>
+        <p class="sub">RS485 主站輪詢 · 透過 USB 轉 RS485 與 Web Serial 連線</p>
+      </div>
+    </div>
+    <div class="conn">
+      <label class="fld">連線方式
+        <select id="cMode"><option value="serial">序列埠（實體設備）</option><option value="sim">模擬從站（免硬體試用）</option></select>
+      </label>
+      <div class="portbox" id="portBox">序列埠
+        <div class="row"><button class="btn sm" id="btnPort" type="button">選擇…</button><span id="portName" class="mono">未選擇</span></div>
+      </div>
+      <label class="fld">鮑率
+        <select id="cBaud"><option>1200</option><option>2400</option><option>4800</option><option>9600</option><option>14400</option><option>19200</option><option>38400</option><option>57600</option><option>115200</option></select>
+      </label>
+      <label class="fld">資料位元<select id="cData"><option>8</option><option>7</option></select></label>
+      <label class="fld">校驗<select id="cParity"><option value="none">無 (N)</option><option value="even">偶 (E)</option><option value="odd">奇 (O)</option></select></label>
+      <label class="fld">停止位元<select id="cStop"><option>1</option><option>2</option></select></label>
+      <button class="btn primary" id="btnConnect" type="button">連線</button>
+      <button class="btn" id="btnRun" type="button">開始輪詢</button>
+    </div>
+  </header>
+
+  <div class="notice" id="notice" role="alert" hidden><span id="noticeText"></span><button type="button" id="noticeClose">關閉</button></div>
+
+  <div class="main">
+    <aside class="panel rail">
+      <div class="rail-head"><h2>輪詢視窗</h2><button class="btn sm" id="btnAdd" type="button">＋ 新增</button></div>
+      <ul class="winlist" id="winList"></ul>
+      <details class="adv" open>
+        <summary>通訊參數</summary>
+        <label class="opt">回應逾時 (ms)<input type="number" id="cTimeout" min="20" max="10000" step="10"></label>
+        <label class="opt">每筆間隔延遲 (ms)<input type="number" id="cDelay" min="0" max="5000" step="5"></label>
+        <label class="opt chk"><input type="checkbox" id="cBase1">PLC 位址（從 1 開始）</label>
+        <label class="opt chk"><input type="checkbox" id="cRts">用 RTS 切換收發方向</label>
+        <p class="hint">一般 USB 轉 RS485 會自動切換收發，不用勾 RTS。間隔延遲用來確保幀與幀之間有足夠的靜默時間（Modbus 規定至少 3.5 字元）。</p>
+      </details>
+      <details class="adv">
+        <summary>硬體接線</summary>
+        <p class="hint">轉接器 <b>A(+)</b> 接設備 A，<b>B(−)</b> 接設備 B，必要時共地 GND。匯流排兩端各接一個 <b>120 Ω</b> 終端電阻。所有設備的鮑率、校驗、停止位元要一致。</p>
+        <p class="hint">實體連線需要用電腦版 Chrome 或 Edge 開啟本頁的 HTML 檔。</p>
+      </details>
+    </aside>
+
+    <section class="panel work">
+      <div class="def">
+        <label class="fld">名稱<input type="text" id="wName" maxlength="40"></label>
+        <label class="fld">從站 ID<input type="number" id="wSlave" min="1" max="247"></label>
+        <label class="fld">功能碼
+          <select id="wFc"><option value="1">01 讀取線圈 (0x)</option><option value="2">02 讀取離散輸入 (1x)</option><option value="3">03 讀取保持暫存器 (4x)</option><option value="4">04 讀取輸入暫存器 (3x)</option></select>
+        </label>
+        <label class="fld">起始位址<input type="number" id="wAddr" min="0" max="65535"></label>
+        <label class="fld">數量<input type="number" id="wQty" min="1" max="2000"></label>
+        <label class="fld">掃描週期 (ms)<input type="number" id="wScan" min="50" max="3600000" step="50"></label>
+        <label class="fld chkfld"><input type="checkbox" id="wEnabled">輪詢</label>
+        <span class="spacer"></span>
+        <div class="acts">
+          <button class="btn sm" id="btnOnce" type="button">讀取一次</button>
+          <button class="btn sm" id="btnWrite" type="button">寫入…</button>
+          <button class="btn sm" id="btnDel" type="button">刪除</button>
+        </div>
+      </div>
+      <div class="status">
+        <span class="line" id="statusLine"></span>
+        <span class="right"><span class="chip idle" id="statusChip">未連線</span><button class="linkbtn" id="btnResetCnt" type="button">計數歸零</button></span>
+      </div>
+      <div class="grid-wrap">
+        <table class="grid">
+          <thead><tr><th>位址</th><th>別名</th><th>顯示格式</th><th class="r">數值（點擊寫入）</th></tr></thead>
+          <tbody id="gridBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <section class="panel mon">
+    <div class="mon-head">
+      <h2>通訊監視</h2>
+      <div class="tools">
+        <button class="btn sm" id="monPause" type="button">暫停</button>
+        <button class="btn sm" id="monClear" type="button">清除</button>
+        <button class="btn sm" id="monCopy" type="button">複製</button>
+        <label><input type="checkbox" id="monTime" checked>時間戳記</label>
+      </div>
+      <form class="raw" id="rawForm">
+        <input type="text" id="rawHex" placeholder="自訂封包 HEX，例如 01 03 00 00 00 02" autocomplete="off" spellcheck="false">
+        <label><input type="checkbox" id="rawCrc" checked>自動加 CRC</label>
+        <button class="btn sm" type="submit">送出</button>
+      </form>
+    </div>
+    <div class="monlog" id="monLog" role="log"><div class="empty">連線後，送出 (Tx) 與收到 (Rx) 的每一個封包都會顯示在這裡。</div></div>
+  </section>
+</div>
+
+<div class="overlay" id="dlg" hidden>
+  <form class="dialog" id="dlgForm" novalidate>
+    <h3>寫入資料</h3>
+    <div class="dgrid">
+      <label class="fld">從站 ID（0 = 廣播）<input type="number" id="dSlave" min="0" max="247"></label>
+      <label class="fld">功能碼
+        <select id="dFc"><option value="5">05 寫單一線圈</option><option value="6">06 寫單一暫存器</option><option value="15">15 寫多個線圈</option><option value="16">16 寫多個暫存器</option></select>
+      </label>
+      <label class="fld">位址<input type="number" id="dAddr" min="0" max="65535"></label>
+      <label class="fld" id="dFmtWrap">資料格式<select id="dFmt"></select></label>
+    </div>
+    <label class="fld">數值<input type="text" id="dVal" class="mono" autocomplete="off" spellcheck="false"></label>
+    <p class="hint" id="dHint"></p>
+    <div class="dprev" id="dPrev"></div>
+    <p class="derr" id="dErr" hidden></p>
+    <div class="actions"><button class="btn" type="button" id="dCancel">取消</button><button class="btn primary" type="submit" id="dSend">送出</button></div>
+  </form>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const pad = (n, w) => String(n).padStart(w, '0');
+const hex = b => Array.from(b, x => x.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ---------- Modbus helpers ---------- */
+function crc16(b, len = b.length) {
+  let c = 0xFFFF;
+  for (let i = 0; i < len; i++) {
+    c ^= b[i];
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (c >>> 1) ^ 0xA001 : c >>> 1;
+  }
+  return c;
+}
+function withCrc(a) { const c = crc16(a); return Uint8Array.from([...a, c & 0xFF, c >> 8]); }
+function crcOk(b) {
+  if (b.length < 4) return false;
+  const c = crc16(b, b.length - 2);
+  return b[b.length - 2] === (c & 0xFF) && b[b.length - 1] === (c >> 8);
+}
+const EXC = {1:'非法功能 (Illegal Function)', 2:'非法資料位址 (Illegal Data Address)', 3:'非法資料值 (Illegal Data Value)', 4:'從站設備故障 (Slave Device Failure)', 5:'確認 (Acknowledge)', 6:'從站忙碌 (Slave Device Busy)', 8:'記憶體同位錯誤 (Memory Parity Error)', 10:'閘道路徑不可用 (Gateway Path Unavailable)', 11:'閘道目標無回應 (Gateway Target Failed)'};
+
+const FMT16 = [['signed','有號 16 位元'],['unsigned','無號 16 位元'],['hex','十六進位'],['binary','二進位']];
+const FMT32 = [['long_abcd','Long AB CD'],['long_cdab','Long CD AB'],['ulong_abcd','ULong AB CD'],['ulong_cdab','ULong CD AB'],['float_abcd','Float AB CD'],['float_cdab','Float CD AB'],['float_badc','Float BA DC'],['float_dcba','Float DC BA']];
+const FMTS = [...FMT16, ...FMT32];
+const ORDER = {abcd:[0,1,2,3], cdab:[2,3,0,1], badc:[1,0,3,2], dcba:[3,2,1,0]};
+const is32 = f => /^(u?long|float)_/.test(f);
+
+function decode32(r0, r1, fmt) {
+  const [kind, order] = fmt.split('_');
+  const raw = [r0 >> 8, r0 & 255, r1 >> 8, r1 & 255];
+  const dv = new DataView(new Uint8Array(ORDER[order].map(i => raw[i])).buffer);
+  return kind === 'float' ? dv.getFloat32(0) : kind === 'long' ? dv.getInt32(0) : dv.getUint32(0);
+}
+function encode32(v, fmt) {
+  const [kind, order] = fmt.split('_');
+  const dv = new DataView(new ArrayBuffer(4));
+  if (kind === 'float') dv.setFloat32(0, v); else if (kind === 'long') dv.setInt32(0, v); else dv.setUint32(0, v);
+  const raw = [0,0,0,0];
+  ORDER[order].forEach((src, dst) => { raw[src] = dv.getUint8(dst); });
+  return [(raw[0] << 8) | raw[1], (raw[2] << 8) | raw[3]];
+}
+function fmt16(v, fmt) {
+  if (fmt === 'signed') return String(v > 32767 ? v - 65536 : v);
+  if (fmt === 'hex') return '0x' + v.toString(16).toUpperCase().padStart(4, '0');
+  if (fmt === 'binary') return v.toString(2).padStart(16, '0').replace(/(\d{4})(?=\d)/g, '$1 ');
+  return String(v);
+}
+function fmtNum32(v, fmt) {
+  if (!fmt.startsWith('float')) return String(v);
+  if (!Number.isFinite(v)) return Number.isNaN(v) ? 'NaN' : (v > 0 ? '+Inf' : '-Inf');
+  return String(+v.toPrecision(7));
+}
+
+/* ---------- state & persistence ---------- */
+const KEY = 'modbus-rtu-tester.v1';
+const uid = () => 'w' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const DEFAULTS = () => ({
+  conn: {mode:'sim', baud:9600, dataBits:8, parity:'none', stopBits:1, timeout:1000, delay:20, base1:false, rts:false},
+  windows: [
+    {id:uid(), name:'溫控器設定', slave:1, fc:3, addr:0, qty:10, scan:1000, enabled:true, rows:{
+      0:{alias:'溫度設定值 ×0.1 °C', fmt:'signed'}, 1:{alias:'運轉模式 (0停/1手動/2自動)', fmt:'unsigned'},
+      2:{alias:'警報旗標', fmt:'binary'}, 3:{alias:'狀態字', fmt:'hex'},
+      4:{alias:'PID 比例增益 Kp', fmt:'float_abcd'}, 6:{alias:'累計運轉秒數', fmt:'ulong_cdab'}, 8:{alias:'偏移量 ×0.1 °C', fmt:'signed'}}},
+    {id:uid(), name:'即時量測', slave:1, fc:4, addr:0, qty:8, scan:500, enabled:true, rows:{
+      0:{alias:'溫度 °C', fmt:'float_abcd'}, 2:{alias:'壓力 bar', fmt:'float_abcd'}, 4:{alias:'流量 L/min', fmt:'float_cdab'},
+      6:{alias:'脈波計數', fmt:'unsigned'}, 7:{alias:'電源電壓 ×0.1 V', fmt:'unsigned'}}},
+    {id:uid(), name:'繼電器輸出', slave:1, fc:1, addr:0, qty:8, scan:1000, enabled:true, rows:{
+      0:{alias:'加熱器'}, 1:{alias:'冷卻風扇'}, 2:{alias:'警報蜂鳴器'}, 3:{alias:'循環泵'}}},
+    {id:uid(), name:'2 號站 數位輸入', slave:2, fc:2, addr:0, qty:16, scan:1000, enabled:true, rows:{
+      0:{alias:'急停按鈕'}, 1:{alias:'門開關'}, 2:{alias:'液位上限'}, 3:{alias:'液位下限'}}},
+  ],
+});
+let state;
+function load() {
+  state = DEFAULTS();
+  try {
+    const s = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (s && Array.isArray(s.windows) && s.windows.length) {
+      state.conn = Object.assign(state.conn, s.conn || {});
+      state.windows = s.windows;
+      state.active = s.active;
+    }
+  } catch (e) {}
+  if (!state.windows.some(w => w.id === state.active)) state.active = state.windows[0].id;
+}
+let saveT;
+function save() {
+  clearTimeout(saveT);
+  saveT = setTimeout(() => {
+    try { localStorage.setItem(KEY, JSON.stringify({conn:state.conn, windows:state.windows, active:state.active})); } catch (e) {}
+  }, 300);
+}
+const runtime = new Map();
+function rt(w) {
+  if (!runtime.has(w.id)) runtime.set(w.id, {next:0, data:null, tx:0, err:0, lastErr:null, rtt:null});
+  return runtime.get(w.id);
+}
+const activeWin = () => state.windows.find(w => w.id === state.active);
+const wireAddr = a => state.conn.base1 ? a - 1 : a;
+const maxQty = fc => fc <= 2 ? 2000 : 125;
+
+/* ---------- simulated slave ---------- */
+const sim = {
+  coils: new Uint8Array(65536), di: new Uint8Array(65536), hr: new Uint16Array(65536), ir: new Uint16Array(65536),
+  t0: Date.now(), pulses: 0,
+  init() {
+    this.hr[0] = 250; this.hr[1] = 2; this.hr[2] = 0b0000000000000101; this.hr[3] = 0x8013;
+    this.hr.set(encode32(1.25, 'float_abcd'), 4); this.hr[8] = 65531;
+    this.coils[0] = 1; this.coils[3] = 1;
+    this.di[1] = 1; this.di[3] = 1;
+  },
+  tick() {
+    const t = (Date.now() - this.t0) / 1000;
+    this.ir.set(encode32(24.5 + 1.8 * Math.sin(t / 6) + (Math.random() - .5) * .1, 'float_abcd'), 0);
+    this.ir.set(encode32(3.2 + .4 * Math.sin(t / 3.1), 'float_abcd'), 2);
+    this.ir.set(encode32(this.coils[3] ? 12.4 + Math.random() * .6 : 0, 'float_cdab'), 4);
+    this.pulses = (this.pulses + 1 + Math.floor(Math.random() * 4)) & 0xFFFF; this.ir[6] = this.pulses;
+    this.ir[7] = 2300 + Math.round((Math.random() - .5) * 30);
+    this.hr.set(encode32(86400 * 3 + Math.floor(t), 'ulong_cdab'), 6);
+    this.di[2] = Math.sin(t / 4) > .6 ? 1 : 0; this.di[3] = Math.sin(t / 4) > -.6 ? 1 : 0;
+  },
+  handle(req) {
+    if (!crcOk(req)) return null;
+    const id = req[0], fc = req[1];
+    if (id !== 0 && id !== 1 && id !== 2) return null;
+    const reply = a => id === 0 ? null : withCrc(a);
+    const exc = code => reply([id, fc | 0x80, code]);
+    const u16 = i => (req[i] << 8) | req[i + 1];
+    this.tick();
+    const addr = u16(2), qty = u16(4);
+    if (fc === 1 || fc === 2) {
+      if (qty < 1 || qty > 2000) return exc(3);
+      if (addr + qty > 10000) return exc(2);
+      const src = fc === 1 ? this.coils : this.di, n = Math.ceil(qty / 8), out = new Array(n).fill(0);
+      for (let i = 0; i < qty; i++) if (src[addr + i]) out[i >> 3] |= 1 << (i & 7);
+      return reply([id, fc, n, ...out]);
+    }
+    if (fc === 3 || fc === 4) {
+      if (qty < 1 || qty > 125) return exc(3);
+      if (addr + qty > 10000) return exc(2);
+      const src = fc === 3 ? this.hr : this.ir, out = [];
+      for (let i = 0; i < qty; i++) out.push(src[addr + i] >> 8, src[addr + i] & 255);
+      return reply([id, fc, qty * 2, ...out]);
+    }
+    if (fc === 5) {
+      if (addr >= 10000) return exc(2);
+      if (qty !== 0xFF00 && qty !== 0) return exc(3);
+      this.coils[addr] = qty ? 1 : 0;
+      return reply(Array.from(req.slice(0, 6)));
+    }
+    if (fc === 6) {
+      if (addr >= 10000) return exc(2);
+      this.hr[addr] = qty;
+      return reply(Array.from(req.slice(0, 6)));
+    }
+    if (fc === 15 || fc === 16) {
+      const bc = req[6];
+      if (fc === 15 ? (qty < 1 || qty > 1968 || bc !== Math.ceil(qty / 8)) : (qty < 1 || qty > 123 || bc !== qty * 2)) return exc(3);
+      if (addr + qty > 10000) return exc(2);
+      for (let i = 0; i < qty; i++) {
+        if (fc === 15) this.coils[addr + i] = (req[7 + (i >> 3)] >> (i & 7)) & 1;
+        else this.hr[addr + i] = u16(7 + i * 2);
+      }
+      return reply(Array.from(req.slice(0, 6)));
+    }
+    return exc(1);
+  },
+};
+sim.init();
+
+/* ---------- transports ---------- */
+const rx = {buf: [], notify: null};
+function onRx(chunk) {
+  for (const b of chunk) rx.buf.push(b);
+  if (rx.notify) rx.notify();
+}
+class SimTransport {
+  constructor() { this.label = '模擬從站 ID 1、2'; }
+  async open() {}
+  async write(bytes) {
+    const res = sim.handle(bytes);
+    if (!res) return;
+    // deliver in two chunks, like a real USB adapter, to exercise frame assembly
+    const d = 8 + Math.random() * 14, cut = Math.max(1, res.length >> 1);
+    setTimeout(() => onRx(res.slice(0, cut)), d);
+    setTimeout(() => onRx(res.slice(cut)), d + 3);
+  }
+  async close() {}
+}
+class SerialTransport {
+  constructor(port) { this.port = port; this.label = portLabel(port); }
+  async open(c) {
+    await this.port.open({baudRate:c.baud, dataBits:c.dataBits, stopBits:c.stopBits, parity:c.parity, bufferSize:4096, flowControl:'none'});
+    this.closing = false;
+    this.writer = this.port.writable.getWriter();
+    if (c.rts) await this.port.setSignals({requestToSend:false});
+    this.loop = this.readLoop();
+  }
+  async readLoop() {
+    while (this.port.readable && !this.closing) {
+      this.reader = this.port.readable.getReader();
+      try {
+        for (;;) {
+          const {value, done} = await this.reader.read();
+          if (done) break;
+          if (value) onRx(value);
+        }
+      } catch (e) {
+        if (!this.closing) log('err', '讀取錯誤：' + e.message + '（常見原因：鮑率或校驗設定不符）');
+      } finally {
+        this.reader.releaseLock();
+      }
+    }
+  }
+  async write(bytes) {
+    const c = state.conn;
+    if (c.rts) await this.port.setSignals({requestToSend:true});
+    await this.writer.write(bytes);
+    if (c.rts) {
+      const bits = 1 + c.dataBits + (c.parity === 'none' ? 0 : 1) + c.stopBits;
+      await sleep(Math.ceil(bytes.length * bits * 1000 / c.baud) + 1);
+      await this.port.setSignals({requestToSend:false});
+    }
+  }
+  async close() {
+    this.closing = true;
+    try { await this.reader?.cancel(); } catch (e) {}
+    try { await this.loop; } catch (e) {}
+    try { this.writer?.releaseLock(); } catch (e) {}
+    try { await this.port.close(); } catch (e) {}
+  }
+}
+const USB_CHIPS = {0x1A86:'CH340/CH341', 0x0403:'FTDI', 0x10C4:'CP210x', 0x067B:'PL2303', 0x2341:'Arduino'};
+function portLabel(p) {
+  try {
+    const i = p.getInfo();
+    if (i.usbVendorId) {
+      const id = i.usbVendorId.toString(16).toUpperCase().padStart(4, '0') + ':' + (i.usbProductId || 0).toString(16).toUpperCase().padStart(4, '0');
+      return (USB_CHIPS[i.usbVendorId] ? USB_CHIPS[i.usbVendorId] + ' ' : 'USB ') + id;
+    }
+  } catch (e) {}
+  return '已選擇的序列埠';
+}
+
+/* ---------- bus & transactions ---------- */
+let transport = null, selectedPort = null, running = false;
+let bus = Promise.resolve();
+function onBus(fn) { const p = bus.then(fn); bus = p.catch(() => {}); return p; }
+
+function expectedLen(b) {
+  if (b.length < 2) return Infinity;
+  const fc = b[1];
+  if (fc & 0x80) return 5;
+  if (fc >= 1 && fc <= 4) return b.length < 3 ? Infinity : 5 + b[2];
+  if ([5, 6, 15, 16].includes(fc)) return 8;
+  return -1; // unknown function: end of frame = line idle
+}
+function transact(req) {
+  return new Promise(resolve => {
+    rx.buf.length = 0;
+    const t0 = performance.now();
+    let done = false, idle = null;
+    const finish = err => {
+      if (done) return;
+      done = true; clearTimeout(to); clearTimeout(idle); rx.notify = null;
+      const resp = Uint8Array.from(rx.buf); rx.buf.length = 0;
+      resolve({resp, err, rtt: performance.now() - t0});
+    };
+    const to = setTimeout(() => finish(rx.buf.length ? 'incomplete' : 'timeout'), state.conn.timeout);
+    rx.notify = () => {
+      const need = expectedLen(rx.buf);
+      if (need === -1) { clearTimeout(idle); idle = setTimeout(() => finish(null), 40); }
+      else if (rx.buf.length >= need) finish(null);
+    };
+    log('tx', req);
+    transport.write(req).catch(e => finish('write:' + e.message));
+  });
+}
+async function modbus(slave, pdu) {
+  if (!transport) return {err:'未連線 (No connection)'};
+  const req = withCrc([slave, ...pdu]);
+  if (slave === 0) {
+    log('tx', req);
+    try { await transport.write(req); } catch (e) { log('err', e.message); return {err:'送出失敗：' + e.message}; }
+    await sleep(Math.max(100, state.conn.delay));
+    return {err:null, broadcast:true, resp:new Uint8Array()};
+  }
+  const r = await transact(req);
+  if (r.resp.length) log('rx', r.resp);
+  let err = null;
+  if (r.err === 'timeout') err = '逾時 (Timeout Error)';
+  else if (r.err === 'incomplete') err = '回應不完整 (Insufficient Bytes)';
+  else if (r.err) err = '送出失敗：' + r.err.slice(6);
+  else if (!crcOk(r.resp)) err = 'CRC 錯誤 (CRC Error)';
+  else if (r.resp[0] !== slave) err = `從站 ID 不符（收到 ${r.resp[0]}）`;
+  else if (r.resp[1] === (pdu[0] | 0x80)) err = `例外 ${pad(r.resp[2], 2)}：${EXC[r.resp[2]] || '未知例外碼'}`;
+  else if (r.resp[1] !== pdu[0]) err = '功能碼不符 (Function Mismatch)';
+  if (err) log('err', err);
+  await sleep(state.conn.delay);
+  return {resp:r.resp, err, rtt:r.rtt};
+}
+
+async function pollWindow(w) {
+  const r = rt(w), a = wireAddr(w.addr);
+  r.tx++;
+  const res = await modbus(w.slave, [w.fc, a >> 8, a & 255, w.qty >> 8, w.qty & 255]);
+  let err = res.err;
+  if (!err) {
+    const n = res.resp[2], want = w.fc <= 2 ? Math.ceil(w.qty / 8) : w.qty * 2;
+    if (n !== want) err = '位元組數錯誤 (Byte Count Error)';
+    else {
+      const d = res.resp.subarray(3, 3 + n), out = [];
+      for (let i = 0; i < w.qty; i++) out.push(w.fc <= 2 ? (d[i >> 3] >> (i & 7)) & 1 : (d[i * 2] << 8) | d[i * 2 + 1]);
+      r.data = out; r.rtt = res.rtt;
+    }
+  }
+  if (err) { r.err++; r.lastErr = err; } else r.lastErr = null;
+  refresh(w);
+}
+
+async function pollLoop() {
+  while (running) {
+    const now = performance.now();
+    const due = state.windows.filter(w => w.enabled && rt(w).next <= now);
+    if (!due.length) { await sleep(5); continue; }
+    for (const w of due) {
+      if (!running || !transport) break;
+      const start = performance.now();
+      await onBus(() => pollWindow(w));
+      rt(w).next = Math.max(start + w.scan, performance.now());
+    }
+  }
+}
+
+/* ---------- connection ---------- */
+function errText(e) {
+  if (e && e.message === 'nosupport') return '這個瀏覽器不支援 Web Serial。請用電腦版 Chrome 或 Edge 開啟本工具的 HTML 檔，或改用「模擬從站」試用。';
+  switch (e && e.name) {
+    case 'SecurityError': return '目前的頁面不允許存取序列埠（本頁被嵌入在其他網站裡時會這樣）。請把 HTML 檔存到電腦，用 Chrome 或 Edge 直接開啟。';
+    case 'NetworkError': return '無法開啟序列埠。它可能正被其他程式或另一個分頁使用，請關閉後再試。';
+    case 'InvalidStateError': return '序列埠已經開啟中，請先中斷連線再試。';
+    default: return '連線失敗：' + (e && e.message || e);
+  }
+}
+async function pickPort() {
+  try {
+    if (!('serial' in navigator)) throw new Error('nosupport');
+    selectedPort = await navigator.serial.requestPort();
+    showPort();
+    return true;
+  } catch (e) {
+    if (e.name !== 'NotFoundError') showNotice(errText(e));
+    return false;
+  }
+}
+async function connect() {
+  const c = state.conn;
+  try {
+    if (c.mode === 'sim') transport = new SimTransport();
+    else {
+      if (!('serial' in navigator)) throw new Error('nosupport');
+      if (!selectedPort && !(await pickPort())) return false;
+      transport = new SerialTransport(selectedPort);
+    }
+    await transport.open(c);
+    hideNotice();
+    log('info', `已連線：${transport.label}，${c.baud} ${c.dataBits}${c.parity[0].toUpperCase()}${c.stopBits}`);
+  } catch (e) {
+    transport = null;
+    showNotice(errText(e));
+  }
+  renderConn();
+  return !!transport;
+}
+async function disconnect() {
+  running = false;
+  const t = transport;
+  transport = null;
+  if (t) await onBus(() => t.close());
+  renderConn();
+  refresh(activeWin());
+}
+async function startRun() {
+  if (!transport && !(await connect())) return;
+  if (running) return;
+  running = true;
+  state.windows.forEach(w => { rt(w).next = 0; });
+  renderConn();
+  pollLoop();
+}
+function stopRun() { running = false; renderConn(); }
+
+/* ---------- traffic monitor ---------- */
+let seq = 0, monPaused = false;
+const monLog = $('monLog');
+function flash(kind) {
+  const el = kind === 'tx' ? $('ledTx') : $('ledRx');
+  el.classList.add('on'); clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('on'), 70);
+}
+function timeStr() {
+  const d = new Date();
+  return `${pad(d.getHours(),2)}:${pad(d.getMinutes(),2)}:${pad(d.getSeconds(),2)}.${pad(d.getMilliseconds(),3)}`;
+}
+function log(kind, data) {
+  if (kind === 'tx' || kind === 'rx') { flash(kind); seq++; }
+  if (monPaused) return;
+  const empty = monLog.querySelector('.empty'); if (empty) empty.remove();
+  const line = document.createElement('div');
+  const ts = $('monTime').checked ? `<span class="ts">${timeStr()}  </span>` : '';
+  let body;
+  if (kind === 'tx' || kind === 'rx') { line.className = kind; body = `${pad(seq, 6)}-${kind === 'tx' ? 'Tx' : 'Rx'}:${hex(data)}`; }
+  else if (kind === 'info') { line.className = 'ts'; body = esc(data); }
+  else { line.className = 'er'; body = `${pad(seq, 6)}-Err:${esc(data)}`; }
+  line.innerHTML = ts + body;
+  const atBottom = monLog.scrollHeight - monLog.scrollTop - monLog.clientHeight < 40;
+  monLog.appendChild(line);
+  while (monLog.childElementCount > 1000) monLog.firstElementChild.remove();
+  if (atBottom) monLog.scrollTop = monLog.scrollHeight;
+}
+
+/* ---------- UI: connection strip ---------- */
+const connSelects = ['cBaud', 'cData', 'cParity', 'cStop', 'cMode'];
+function showPort() { $('portName').textContent = selectedPort ? portLabel(selectedPort) : '未選擇'; }
+function renderConn() {
+  const c = state.conn, on = !!transport;
+  connSelects.forEach(id => { $(id).disabled = on; });
+  $('btnPort').disabled = on || c.mode === 'sim';
+  $('portBox').style.opacity = c.mode === 'sim' ? .5 : 1;
+  $('btnConnect').textContent = on ? '中斷連線' : '連線';
+  $('btnConnect').classList.toggle('primary', !on);
+  $('btnRun').textContent = running ? '停止輪詢' : '開始輪詢';
+  $('btnRun').classList.toggle('live', running);
+  $('ledPwr').classList.toggle('on', on);
+  renderList();
+  refresh(activeWin());
+}
+function showNotice(t) { $('noticeText').textContent = t; $('notice').hidden = false; }
+function hideNotice() { $('notice').hidden = true; }
+let toastT;
+function toast(t) { const el = $('toast'); el.textContent = t; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { el.hidden = true; }, 2200); }
+
+/* ---------- UI: window list ---------- */
+const listRefs = new Map();
+const FC_SHORT = {1:'線圈', 2:'離散輸入', 3:'保持暫存器', 4:'輸入暫存器'};
+function buildList() {
+  const ul = $('winList'); ul.innerHTML = ''; listRefs.clear();
+  for (const w of state.windows) {
+    const li = document.createElement('li');
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'win';
+    b.innerHTML = '<span class="dot"></span><span class="nm"></span><span class="cnt"></span><span class="meta"></span>';
+    b.addEventListener('click', () => { state.active = w.id; save(); buildList(); renderDef(); buildGrid(); });
+    li.appendChild(b); ul.appendChild(li);
+    listRefs.set(w.id, b);
+  }
+  renderList();
+}
+function renderList() {
+  for (const w of state.windows) {
+    const b = listRefs.get(w.id); if (!b) continue;
+    const r = rt(w);
+    b.setAttribute('aria-current', w.id === state.active ? 'true' : 'false');
+    b.querySelector('.dot').className = 'dot ' + (!w.enabled ? 'off' : r.lastErr ? 'err' : r.data && transport ? 'ok' : '');
+    b.querySelector('.nm').textContent = w.name || '（未命名）';
+    b.querySelector('.meta').textContent = `ID ${w.slave} · F${pad(w.fc, 2)} · ${w.addr}+${w.qty}`;
+    b.querySelector('.cnt').innerHTML = `Tx ${r.tx}<br>${r.err ? `<b>Err ${r.err}</b>` : 'Err 0'}`;
+  }
+}
+
+/* ---------- UI: definition form ---------- */
+function renderDef() {
+  const w = activeWin();
+  $('wName').value = w.name; $('wSlave').value = w.slave; $('wFc').value = w.fc;
+  $('wAddr').value = w.addr; $('wQty').value = w.qty; $('wScan').value = w.scan; $('wEnabled').checked = w.enabled;
+  $('wAddr').min = state.conn.base1 ? 1 : 0;
+  $('wQty').max = maxQty(w.fc);
+  $('btnDel').disabled = state.windows.length < 2;
+}
+const clampInt = (v, lo, hi, dflt) => { v = Math.round(Number(v)); return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : dflt; };
+function applyDef() {
+  const w = activeWin(), before = `${w.fc}|${w.addr}|${w.qty}|${w.slave}`;
+  w.name = $('wName').value.trim();
+  w.slave = clampInt($('wSlave').value, 1, 247, w.slave);
+  w.fc = Number($('wFc').value);
+  const lo = state.conn.base1 ? 1 : 0;
+  w.addr = clampInt($('wAddr').value, lo, 65535 + lo, w.addr);
+  w.qty = clampInt($('wQty').value, 1, Math.min(maxQty(w.fc), 65536 - wireAddr(w.addr)), w.qty);
+  w.scan = clampInt($('wScan').value, 50, 3600000, w.scan);
+  w.enabled = $('wEnabled').checked;
+  if (before !== `${w.fc}|${w.addr}|${w.qty}|${w.slave}`) { const r = rt(w); r.data = null; r.lastErr = null; r.next = 0; buildGrid(); }
+  renderDef(); renderList(); refresh(w); save();
+}
+
+/* ---------- UI: data grid ---------- */
+let cells = [], fmtSels = [];
+function plcRef(w, i) {
+  const prefix = {1:'0', 2:'1', 3:'4', 4:'3'}[w.fc];
+  return prefix + pad(wireAddr(w.addr) + i + 1, 4);
+}
+function buildGrid() {
+  const w = activeWin(), tb = $('gridBody'), regs = w.fc >= 3;
+  tb.innerHTML = ''; cells = []; fmtSels = [];
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < w.qty; i++) {
+    const row = w.rows[i] || {};
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td class="addr">${w.addr + i}<small>${plcRef(w, i)}</small></td><td></td><td></td><td></td>`;
+    const alias = document.createElement('input');
+    alias.className = 'alias'; alias.value = row.alias || ''; alias.placeholder = '—'; alias.id = `alias-${w.id}-${i}`;
+    alias.setAttribute('aria-label', `位址 ${w.addr + i} 的別名`);
+    alias.addEventListener('change', () => { (w.rows[i] = w.rows[i] || {}).alias = alias.value; save(); });
+    tr.children[1].appendChild(alias);
+    if (regs) {
+      const sel = document.createElement('select');
+      sel.id = `fmt-${w.id}-${i}`;
+      sel.setAttribute('aria-label', `位址 ${w.addr + i} 的顯示格式`);
+      sel.innerHTML = `<optgroup label="16 位元">${FMT16.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</optgroup><optgroup label="32 位元（佔兩個暫存器）">${FMT32.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</optgroup>`;
+      sel.value = row.fmt || 'signed';
+      sel.addEventListener('change', () => { (w.rows[i] = w.rows[i] || {}).fmt = sel.value; save(); refresh(w); });
+      tr.children[2].appendChild(sel); fmtSels.push(sel);
+    } else {
+      tr.children[2].innerHTML = '<span class="fmtfixed">位元 ON / OFF</span>'; fmtSels.push(null);
+    }
+    const v = document.createElement('button');
+    v.type = 'button'; v.className = 'val'; v.textContent = '—';
+    v.addEventListener('click', () => cellClick(w, i));
+    tr.children[3].appendChild(v); cells.push(v);
+    frag.appendChild(tr);
+  }
+  tb.appendChild(frag);
+  refresh(w);
+}
+function rowFmt(w, i) { return w.fc >= 3 ? ((w.rows[i] && w.rows[i].fmt) || 'signed') : 'bit'; }
+function refresh(w) {
+  if (!w) return;
+  renderList();
+  if (w.id !== state.active) return;
+  const r = rt(w), regs = w.fc >= 3, ro = w.fc === 2 || w.fc === 4, d = r.data;
+  // status line in the classic poll-tool layout
+  $('statusLine').textContent = `Tx = ${r.tx}: Err = ${r.err}: ID = ${w.slave}: F = ${pad(w.fc, 2)}: SR = ${w.scan}ms`;
+  const chip = $('statusChip');
+  if (!transport) { chip.className = 'chip idle'; chip.textContent = '未連線 (No connection)'; }
+  else if (r.lastErr) { chip.className = 'chip err'; chip.textContent = r.lastErr; }
+  else if (d) { chip.className = 'chip ok'; chip.textContent = `正常 · 回應 ${Math.round(r.rtt)} ms`; }
+  else { chip.className = 'chip idle'; chip.textContent = w.enabled ? (running ? '等待回應…' : '已連線，尚未輪詢') : '輪詢已關閉'; }
+  const stale = !d || !!r.lastErr || !transport;
+  let covered = -1;
+  for (let i = 0; i < w.qty && i < cells.length; i++) {
+    const cell = cells[i], sel = fmtSels[i];
+    if (i === covered) {
+      cell.className = 'val cont'; cell.textContent = '↑ 32 位元下半';
+      if (sel) sel.hidden = true;
+      continue;
+    }
+    if (sel) sel.hidden = false;
+    const fmt = rowFmt(w, i);
+    cell.className = 'val' + (ro ? ' ro' : '') + (stale ? ' stale' : '');
+    if (!regs) {
+      cell.innerHTML = d ? `<span class="bit${d[i] ? ' on' : ''}"><i></i>${d[i] ? '1 ON' : '0 OFF'}</span>` : '—';
+    } else if (is32(fmt)) {
+      if (i + 1 >= w.qty) { cell.textContent = '需要兩個暫存器'; continue; }
+      covered = i + 1;
+      cell.textContent = d ? fmtNum32(decode32(d[i], d[i + 1], fmt), fmt) : '—';
+    } else {
+      cell.textContent = d ? fmt16(d[i], fmt) : '—';
+    }
+  }
+}
+function currentEditValue(w, i, fmt) {
+  const d = rt(w).data;
+  if (!d) return '';
+  if (w.fc <= 2) return d[i] ? '0' : '1'; // toggle by default
+  if (is32(fmt)) return fmtNum32(decode32(d[i], d[i + 1], fmt), fmt);
+  if (fmt === 'binary') return d[i].toString(2).padStart(16, '0');
+  return fmt16(d[i], fmt);
+}
+function cellClick(w, i) {
+  if (cells[i].classList.contains('cont')) return;
+  if (w.fc === 2 || w.fc === 4) { toast(w.fc === 2 ? '離散輸入是唯讀的，無法寫入' : '輸入暫存器是唯讀的，無法寫入'); return; }
+  const fmt = rowFmt(w, i);
+  openWrite({slave:w.slave, fc: w.fc === 1 ? 5 : is32(fmt) ? 16 : 6, addr:w.addr + i, fmt: fmt === 'bit' ? 'unsigned' : fmt, val: currentEditValue(w, i, fmt), cell:i});
+}
+
+/* ---------- write dialog ---------- */
+let dlgCtx = null;
+const HINTS = {
+  5: '輸入 1 或 0（也可以輸入 ON / OFF）。',
+  15: '用逗號分隔多個線圈值，例如 1,0,1,1，會從起始位址依序寫入。',
+  6: '單一 16 位元值。十六進位可輸入 0x1A2B，二進位可輸入 0b0101。',
+  16: '用逗號分隔多個值，從起始位址依序寫入。32 位元格式的每個值佔兩個暫存器。',
+};
+function openWrite(o) {
+  dlgCtx = o;
+  $('dSlave').value = o.slave; $('dFc').value = o.fc; $('dAddr').value = o.addr;
+  $('dAddr').min = state.conn.base1 ? 1 : 0;
+  $('dFmt').innerHTML = FMTS.map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
+  $('dFmt').value = o.fmt || 'unsigned';
+  $('dVal').value = o.val ?? '';
+  $('dErr').hidden = true; $('dSend').disabled = false;
+  $('dlg').hidden = false;
+  updateDlg();
+  $('dVal').focus(); $('dVal').select();
+}
+function closeDlg() { $('dlg').hidden = true; dlgCtx = null; }
+function parseNum(s, fmt) {
+  s = s.trim().replace(/_/g, '');
+  if (fmt === 'hex') { s = s.replace(/\s+/g, ''); if (!/^0x/i.test(s)) s = '0x' + s; }
+  if (fmt === 'binary') { s = s.replace(/\s+/g, ''); if (!/^0b/i.test(s)) s = '0b' + s; }
+  return s === '' || s === '0x' || s === '0b' ? NaN : Number(s);
+}
+function toRegs(s, fmt) {
+  const v = parseNum(s, fmt);
+  if (Number.isNaN(v)) throw `「${s.trim()}」不是有效的數字`;
+  if (is32(fmt)) {
+    const kind = fmt.split('_')[0];
+    if (kind === 'float') { if (!Number.isFinite(v)) throw `「${s.trim()}」不是有限的數值`; }
+    else {
+      if (!Number.isInteger(v)) throw `「${s.trim()}」必須是整數`;
+      const [lo, hi] = kind === 'long' ? [-2147483648, 2147483647] : [0, 4294967295];
+      if (v < lo || v > hi) throw `「${s.trim()}」超出範圍 (${lo} ~ ${hi})`;
+    }
+    return encode32(v, fmt);
+  }
+  if (!Number.isInteger(v)) throw `「${s.trim()}」必須是整數`;
+  if (fmt === 'signed') {
+    if (v < -32768 || v > 32767) throw `「${s.trim()}」超出有號 16 位元範圍 (-32768 ~ 32767)`;
+    return [v & 0xFFFF];
+  }
+  if (v < 0 || v > 65535) throw `「${s.trim()}」超出 16 位元範圍 (0 ~ 65535)`;
+  return [v];
+}
+function toBit(s) {
+  s = s.trim();
+  if (/^(1|on|true|開)$/i.test(s)) return 1;
+  if (/^(0|off|false|關)$/i.test(s)) return 0;
+  throw `「${s}」不是有效的線圈值，請輸入 1 或 0`;
+}
+function buildWrite() {
+  const slave = Number($('dSlave').value), fc = Number($('dFc').value), addr = Number($('dAddr').value), fmt = $('dFmt').value;
+  if (!Number.isInteger(slave) || slave < 0 || slave > 247) throw '從站 ID 必須在 0 ~ 247 之間';
+  const lo = state.conn.base1 ? 1 : 0;
+  if (!Number.isInteger(addr) || addr < lo || addr > 65535 + lo) throw `位址必須在 ${lo} ~ ${65535 + lo} 之間`;
+  const parts = $('dVal').value.split(/[,;\n]+/).filter(s => s.trim() !== '');
+  if (!parts.length) throw '請輸入要寫入的數值';
+  const a = wireAddr(addr);
+  let pdu, values;
+  if (fc === 5) {
+    if (parts.length > 1) throw '功能碼 05 一次只能寫一個線圈，多個請用 15';
+    values = [toBit(parts[0])];
+    pdu = [5, a >> 8, a & 255, values[0] ? 0xFF : 0, 0];
+  } else if (fc === 15) {
+    values = parts.map(toBit);
+    if (values.length > 1968) throw '一次最多寫 1968 個線圈';
+    const bytes = new Array(Math.ceil(values.length / 8)).fill(0);
+    values.forEach((v, i) => { if (v) bytes[i >> 3] |= 1 << (i & 7); });
+    pdu = [15, a >> 8, a & 255, values.length >> 8, values.length & 255, bytes.length, ...bytes];
+  } else if (fc === 6) {
+    if (is32(fmt)) throw '32 位元格式要用功能碼 16 寫入兩個暫存器';
+    if (parts.length > 1) throw '功能碼 06 一次只能寫一個暫存器，多個請用 16';
+    values = toRegs(parts[0], fmt);
+    pdu = [6, a >> 8, a & 255, values[0] >> 8, values[0] & 255];
+  } else {
+    values = parts.flatMap(p => toRegs(p, fmt));
+    if (values.length > 123) throw '一次最多寫 123 個暫存器';
+    pdu = [16, a >> 8, a & 255, values.length >> 8, values.length & 255, values.length * 2, ...values.flatMap(v => [v >> 8, v & 255])];
+  }
+  if (a + (fc === 5 || fc === 6 ? 1 : values.length) > 65536) throw '寫入範圍超出位址 65535';
+  return {slave, fc, addr, pdu};
+}
+function updateDlg() {
+  const fc = Number($('dFc').value);
+  $('dFmtWrap').hidden = fc === 5 || fc === 15;
+  $('dHint').textContent = HINTS[fc];
+  try {
+    const b = buildWrite();
+    $('dPrev').innerHTML = `<span>將送出 Tx：</span>${hex(withCrc([b.slave, ...b.pdu]))}`;
+    $('dErr').hidden = true;
+  } catch (e) {
+    $('dPrev').innerHTML = '<span>將送出 Tx：</span>—';
+    if ($('dVal').value.trim()) { $('dErr').textContent = e; $('dErr').hidden = false; } else $('dErr').hidden = true;
+  }
+}
+async function submitWrite(ev) {
+  ev.preventDefault();
+  let b;
+  try { b = buildWrite(); } catch (e) { $('dErr').textContent = e; $('dErr').hidden = false; return; }
+  if (!transport) { $('dErr').textContent = '尚未連線，請先按「連線」。'; $('dErr').hidden = false; return; }
+  $('dSend').disabled = true;
+  const ctx = dlgCtx;
+  const res = await onBus(() => modbus(b.slave, b.pdu));
+  $('dSend').disabled = false;
+  if (res.err) { $('dErr').textContent = '寫入失敗：' + res.err; $('dErr').hidden = false; return; }
+  closeDlg();
+  toast(res.broadcast ? '已廣播，廣播不會有回應' : '寫入成功');
+  // re-read anything on the same station right away
+  state.windows.forEach(w => { if (w.slave === b.slave || b.slave === 0) rt(w).next = 0; });
+  const w = activeWin();
+  if (!running && (w.slave === b.slave || b.slave === 0)) onBus(() => pollWindow(w));
+  if (ctx && ctx.cell != null && cells[ctx.cell]) {
+    const c = cells[ctx.cell]; c.classList.add('flash'); setTimeout(() => c.classList.remove('flash'), 600);
+  }
+}
+
+/* ---------- raw frames ---------- */
+async function sendRaw(ev) {
+  ev.preventDefault();
+  if (!transport) { toast('尚未連線'); return; }
+  const s = $('rawHex').value.replace(/0x/gi, '').replace(/[^0-9a-f]/gi, '');
+  if (!s || s.length % 2) { toast('HEX 長度必須是偶數，例如 01 03 00 00 00 02'); return; }
+  let bytes = Uint8Array.from(s.match(/../g).map(h => parseInt(h, 16)));
+  if ($('rawCrc').checked) bytes = withCrc(Array.from(bytes));
+  await onBus(async () => {
+    const r = await transact(bytes);
+    if (r.resp.length) {
+      log('rx', r.resp);
+      if (!crcOk(r.resp)) log('err', 'CRC 錯誤 (CRC Error)');
+      else if (r.err === 'incomplete') log('err', '回應不完整 (Insufficient Bytes)');
+    } else log('err', '逾時，沒有回應 (Timeout Error)');
+    await sleep(state.conn.delay);
+  });
+}
+
+/* ---------- bindings ---------- */
+function bind() {
+  const c = state.conn;
+  $('cMode').value = c.mode; $('cBaud').value = c.baud; $('cData').value = c.dataBits; $('cParity').value = c.parity; $('cStop').value = c.stopBits;
+  $('cTimeout').value = c.timeout; $('cDelay').value = c.delay; $('cBase1').checked = c.base1; $('cRts').checked = c.rts;
+  $('cMode').addEventListener('change', e => { c.mode = e.target.value; save(); renderConn(); });
+  $('cBaud').addEventListener('change', e => { c.baud = Number(e.target.value); save(); });
+  $('cData').addEventListener('change', e => { c.dataBits = Number(e.target.value); save(); });
+  $('cParity').addEventListener('change', e => { c.parity = e.target.value; save(); });
+  $('cStop').addEventListener('change', e => { c.stopBits = Number(e.target.value); save(); });
+  $('cTimeout').addEventListener('change', e => { c.timeout = clampInt(e.target.value, 20, 10000, 1000); e.target.value = c.timeout; save(); });
+  $('cDelay').addEventListener('change', e => { c.delay = clampInt(e.target.value, 0, 5000, 20); e.target.value = c.delay; save(); });
+  $('cBase1').addEventListener('change', e => {
+    c.base1 = e.target.checked;
+    state.windows.forEach(w => { w.addr = Math.max(c.base1 ? 1 : 0, w.addr + (c.base1 ? 1 : -1)); });
+    save(); renderDef(); buildGrid();
+  });
+  $('cRts').addEventListener('change', e => { c.rts = e.target.checked; save(); });
+  $('btnPort').addEventListener('click', pickPort);
+  $('btnConnect').addEventListener('click', () => transport ? disconnect() : connect());
+  $('btnRun').addEventListener('click', () => running ? stopRun() : startRun());
+  $('noticeClose').addEventListener('click', hideNotice);
+
+  ['wName', 'wSlave', 'wFc', 'wAddr', 'wQty', 'wScan', 'wEnabled'].forEach(id => $(id).addEventListener('change', applyDef));
+  $('btnOnce').addEventListener('click', async () => {
+    if (!transport && !(await connect())) return;
+    const w = activeWin(); onBus(() => pollWindow(w));
+  });
+  $('btnWrite').addEventListener('click', () => {
+    const w = activeWin();
+    openWrite({slave:w.slave, fc: w.fc <= 2 ? 5 : 6, addr:w.addr, fmt:'unsigned', val:''});
+  });
+  let armT;
+  $('btnDel').addEventListener('click', e => {
+    const b = e.currentTarget;
+    if (!b.classList.contains('arm')) {
+      b.classList.add('arm'); b.textContent = '再按一次刪除';
+      armT = setTimeout(() => { b.classList.remove('arm'); b.textContent = '刪除'; }, 3000);
+      return;
+    }
+    clearTimeout(armT); b.classList.remove('arm'); b.textContent = '刪除';
+    const idx = state.windows.findIndex(w => w.id === state.active);
+    runtime.delete(state.active);
+    state.windows.splice(idx, 1);
+    state.active = state.windows[Math.max(0, idx - 1)].id;
+    save(); buildList(); renderDef(); buildGrid();
+  });
+  $('btnAdd').addEventListener('click', () => {
+    const w = {id:uid(), name:`視窗 ${state.windows.length + 1}`, slave:1, fc:3, addr: c.base1 ? 1 : 0, qty:10, scan:1000, enabled:true, rows:{}};
+    state.windows.push(w); state.active = w.id;
+    save(); buildList(); renderDef(); buildGrid();
+    $('wName').focus(); $('wName').select();
+  });
+  $('btnResetCnt').addEventListener('click', () => { const r = rt(activeWin()); r.tx = 0; r.err = 0; refresh(activeWin()); });
+
+  ['dSlave', 'dFc', 'dAddr', 'dFmt', 'dVal'].forEach(id => $(id).addEventListener('input', updateDlg));
+  $('dFc').addEventListener('change', updateDlg);
+  $('dlgForm').addEventListener('submit', submitWrite);
+  $('dCancel').addEventListener('click', closeDlg);
+  $('dlg').addEventListener('click', e => { if (e.target === $('dlg')) closeDlg(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('dlg').hidden) closeDlg(); });
+
+  $('monPause').addEventListener('click', e => { monPaused = !monPaused; e.currentTarget.textContent = monPaused ? '繼續' : '暫停'; e.currentTarget.classList.toggle('live', monPaused); });
+  $('monClear').addEventListener('click', () => { monLog.innerHTML = ''; seq = 0; });
+  $('monCopy').addEventListener('click', () => {
+    const text = monLog.innerText;
+    const fallback = () => { const sel = getSelection(), range = document.createRange(); range.selectNodeContents(monLog); sel.removeAllRanges(); sel.addRange(range); toast('已選取記錄，請按 Ctrl+C 複製'); };
+    try { navigator.clipboard.writeText(text).then(() => toast('已複製通訊記錄'), fallback); } catch (e) { fallback(); }
+  });
+  $('rawForm').addEventListener('submit', sendRaw);
+
+  try {
+    if ('serial' in navigator) {
+      navigator.serial.getPorts().then(ps => { if (ps.length && !selectedPort) { selectedPort = ps[0]; showPort(); } }).catch(() => {});
+      navigator.serial.addEventListener('disconnect', e => {
+        if (transport && transport.port === e.target) { disconnect(); showNotice('序列埠已被拔除，連線已中斷。'); }
+      });
+    }
+  } catch (e) {}
+}
+
+load();
+bind();
+buildList();
+renderDef();
+buildGrid();
+renderConn();
+if (state.conn.mode === 'sim') startRun();
+</script>
+
+</html>
